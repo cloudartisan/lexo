@@ -5,6 +5,44 @@ exercise for Go.
 
 ## Installation
 
+### Prerequisites
+
+First, install Go on your system:
+
+#### macOS
+```bash
+# Using Homebrew
+brew install go
+
+# Or download from the official website
+# https://golang.org/dl/
+```
+
+#### Linux
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install golang
+
+# Fedora
+sudo dnf install golang
+
+# Or download from the official website
+# https://golang.org/dl/
+```
+
+#### Windows
+```bash
+# Using Chocolatey
+choco install golang
+
+# Or download the installer from
+# https://golang.org/dl/
+```
+
+### Building the Application
+Once Go is installed:
+
 ```bash
 go build
 ```
