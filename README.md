@@ -60,19 +60,44 @@ cat file.txt | ./wc
 
 # Count words from a command output
 echo "hello world" | ./wc
+
+# Count lines of code in current directory
+./wc --loc
+
+# Count lines of code in a specific directory
+./wc --loc /path/to/project
+
+# Count lines of code in multiple directories
+./wc --loc dir1 dir2 dir3
 ```
 
-## Example
+## Examples
 
 ```bash
+# Counting words
 echo "The quick brown fox jumps over the lazy dog" | ./wc
 9
+
+# Counting lines of code
+./wc --loc .
+125
 ```
+
+## Dependencies
+
+For the `--loc` feature to work, you need to have the `scc` tool installed:
+
+```bash
+go install github.com/boyter/scc@latest
+```
+
+This will install the [scc (Sloc, Cloc and Code)](https://github.com/boyter/scc) tool, which provides accurate code counting with support for many languages and smart handling of exclusion patterns.
 
 ## Development
 
 ### Requirements
-- Go 1.15 or newer
+- Go 1.16 or newer
+- scc tool (for the --loc feature)
 
 ### Build and Test
 
