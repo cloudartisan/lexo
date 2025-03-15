@@ -500,6 +500,172 @@ func TestDetectLanguage(t *testing.T) {
 	}
 }
 
+// TestFileProcessing tests processing specific files
+func TestFileProcessing(t *testing.T) {
+	// Create a temp file for testing
+	tempFile, err := os.CreateTemp("", "wc-test-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	defer os.Remove(tempFile.Name())
+	
+	// Write test data
+	testData := "This is test data for language detection and counting.\nIt has multiple lines.\nAnd various words and characters."
+	if _, err := tempFile.Write([]byte(testData)); err != nil {
+		t.Fatalf("Failed to write to temp file: %v", err)
+	}
+	if err := tempFile.Close(); err != nil {
+		t.Fatalf("Failed to close temp file: %v", err)
+	}
+	
+	// Test cases for various operations on the temp file
+	tests := []struct {
+		name     string
+		config   *Config
+		expected string
+		contains bool
+	}{
+		{
+			name: "language detection from file",
+			config: &Config{
+				DetectLanguage: true,
+				Paths:          []string{tempFile.Name()},
+				Output:         nil, // will be set in the test
+			},
+			expected: "Language: en",
+			contains: true,
+		},
+		{
+			name: "language name from file",
+			config: &Config{
+				DetectLanguage:   true,
+				ShowLanguageName: true,
+				Paths:            []string{tempFile.Name()},
+				Output:           nil, // will be set in the test
+			},
+			expected: "Language: English",
+			contains: true,
+		},
+		{
+			name: "word count from file",
+			config: &Config{
+				Word:   true,
+				Paths:  []string{tempFile.Name()},
+				Output: nil, // will be set in the test
+			},
+			expected: "18", // Count of words in testData
+			contains: false,
+		},
+		{
+			name: "line count from file",
+			config: &Config{
+				Line:   true,
+				Paths:  []string{tempFile.Name()},
+				Output: nil, // will be set in the test
+			},
+			expected: "3", // Count of lines in testData
+			contains: false,
+		},
+		{
+			name: "language and word count from file",
+			config: &Config{
+				DetectLanguage: true,
+				Word:           true,
+				Paths:          []string{tempFile.Name()},
+				Output:         nil, // will be set in the test
+			},
+			expected: "Count: 18",
+			contains: true,
+		},
+	}
+	
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var outBuf bytes.Buffer
+			tc.config.Output = &outBuf
+			
+			// Run with this configuration
+			err := Run(tc.config)
+			if err != nil {
+				t.Fatalf("Run returned error: %v", err)
+			}
+			
+			// Check output
+			actual := strings.TrimSpace(outBuf.String())
+			if tc.contains {
+				if !strings.Contains(actual, tc.expected) {
+					t.Errorf("Expected output to contain %q, got %q", tc.expected, actual)
+				}
+			} else {
+				if actual != tc.expected {
+					t.Errorf("Expected %q, got %q", tc.expected, actual)
+				}
+			}
+		})
+	}
+}
+
+// TestMultipleFiles tests processing multiple files
+func TestMultipleFiles(t *testing.T) {
+	// Create temp files for testing
+	tempFile1, err := os.CreateTemp("", "wc-test-1-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file 1: %v", err)
+	}
+	defer os.Remove(tempFile1.Name())
+	
+	tempFile2, err := os.CreateTemp("", "wc-test-2-*.txt")
+	if err != nil {
+		t.Fatalf("Failed to create temp file 2: %v", err)
+	}
+	defer os.Remove(tempFile2.Name())
+	
+	// Write test data
+	testData1 := "This is file one.\nIt has English text."
+	testData2 := "El segundo archivo.\nTexto en español."
+	
+	if _, err := tempFile1.Write([]byte(testData1)); err != nil {
+		t.Fatalf("Failed to write to temp file 1: %v", err)
+	}
+	if err := tempFile1.Close(); err != nil {
+		t.Fatalf("Failed to close temp file 1: %v", err)
+	}
+	
+	if _, err := tempFile2.Write([]byte(testData2)); err != nil {
+		t.Fatalf("Failed to write to temp file 2: %v", err)
+	}
+	if err := tempFile2.Close(); err != nil {
+		t.Fatalf("Failed to close temp file 2: %v", err)
+	}
+	
+	// Test multiple file handling
+	var outBuf bytes.Buffer
+	cfg := &Config{
+		DetectLanguage: true,
+		Paths:          []string{tempFile1.Name(), tempFile2.Name()},
+		Output:         &outBuf,
+	}
+	
+	// Run with this configuration
+	err = Run(cfg)
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	
+	// Check output contains both filenames and language detections
+	actual := strings.TrimSpace(outBuf.String())
+	
+	// Check for first file
+	if !strings.Contains(actual, tempFile1.Name()) {
+		t.Errorf("Output should contain first filename %q, got: %q", tempFile1.Name(), actual)
+	}
+	
+	// Check for second file
+	if !strings.Contains(actual, tempFile2.Name()) {
+		t.Errorf("Output should contain second filename %q, got: %q", tempFile2.Name(), actual)
+	}
+}
+
 func TestConfig(t *testing.T) {
 	// Test NewDefaultConfig
 	cfg := NewDefaultConfig()

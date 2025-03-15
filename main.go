@@ -220,8 +220,8 @@ func ParseFlags(cfg *Config) {
 			fmt.Fprintf(cfg.ErrorOutput, "  -w, --words       Count words (default behavior)\n")
 			fmt.Fprintf(cfg.ErrorOutput, "  -l, --lines       Count lines instead of words\n")
 			fmt.Fprintf(cfg.ErrorOutput, "  -c, --chars       Count characters instead of words\n")
-			fmt.Fprintf(cfg.ErrorOutput, "      --loc         Count lines of code instead of words\n")
-			fmt.Fprintf(cfg.ErrorOutput, "      --lang        Detect language of text\n")
+			fmt.Fprintf(cfg.ErrorOutput, "      --loc         Count lines of code in specified paths or current directory\n")
+			fmt.Fprintf(cfg.ErrorOutput, "      --lang        Detect language of text in specified files or stdin\n")
 			fmt.Fprintf(cfg.ErrorOutput, "      --lang-name   Show human-readable language name (implies --lang)\n")
 			fmt.Fprintf(cfg.ErrorOutput, "  -h, --help        Show this help message\n")
 			os.Exit(0)
@@ -259,8 +259,8 @@ func ParseFlags(cfg *Config) {
 			continue
 		}
 		
-		// Handle non-flag arguments (paths for --loc)
-		if loc && !strings.HasPrefix(arg, "-") {
+		// Handle non-flag arguments (paths for --loc or --lang)
+		if (loc || lang) && !strings.HasPrefix(arg, "-") {
 			paths = append(paths, arg)
 			continue
 		}
@@ -274,11 +274,13 @@ func ParseFlags(cfg *Config) {
 	cfg.ShowLanguageName = langName
 	cfg.Word = w || (!cfg.Line && !cfg.Char && !cfg.LOC && !cfg.DetectLanguage)
 	
-	// Set paths for LOC feature
-	if loc {
-		if len(paths) > 0 {
-			cfg.Paths = paths
-		} else {
+	// Set paths
+	if len(paths) > 0 {
+		cfg.Paths = paths
+	} else if loc || lang {
+		// Default to current directory for --loc (consistent with existing behavior),
+		// but don't default for language detection (will use stdin)
+		if loc {
 			cfg.Paths = []string{"."}
 		}
 	}
@@ -296,47 +298,34 @@ func Run(cfg *Config) error {
 	
 	// If we're detecting language, we need to handle the special case
 	if cfg.DetectLanguage {
-		// Create a buffer to allow reading the input twice
-		var buf bytes.Buffer
-		tee := io.TeeReader(cfg.Input, &buf)
-		
-		// First pass: detect language
-		langTag, langName, err := detectLanguage(tee)
-		if err != nil {
-			return fmt.Errorf("failed to detect language: %w", err)
+		// Check if paths are provided
+		if len(cfg.Paths) > 0 {
+			// Process each file
+			for _, path := range cfg.Paths {
+				if err := processFileForLanguage(path, cfg); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
 		
-		// Second pass: handle standard counting options if requested
-		var count int
-		var needsCount bool
-		switch {
-		case cfg.Line:
-			count = countLines(&buf)
-			needsCount = true
-		case cfg.Char:
-			count = countChars(&buf)
-			needsCount = true
-		case cfg.Word:
-			count = countWords(&buf)
-			needsCount = true
-		}
-		
-		// Print language info
-		if cfg.ShowLanguageName {
-			fmt.Fprintf(cfg.Output, "Language: %s\n", langName)
-		} else {
-			fmt.Fprintf(cfg.Output, "Language: %s\n", langTag)
-		}
-		
-		// Print count if needed
-		if needsCount {
-			fmt.Fprintf(cfg.Output, "Count: %d\n", count)
-		}
-		
-		return nil
+		// No paths, process stdin
+		return processReaderForLanguage(cfg.Input, cfg)
 	}
 	
 	// Handle standard counting options
+	// Check if paths are provided for standard counting
+	if len(cfg.Paths) > 0 {
+		// Process each file
+		for _, path := range cfg.Paths {
+			if err := processFileForCounting(path, cfg); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	
+	// No paths, process stdin for standard counting
 	var count int
 	switch {
 	case cfg.Line:
@@ -348,6 +337,96 @@ func Run(cfg *Config) error {
 	}
 	
 	fmt.Fprintln(cfg.Output, count)
+	return nil
+}
+
+// processFileForLanguage handles language detection for a specific file
+func processFileForLanguage(path string, cfg *Config) error {
+	// Open the file
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %w", path, err)
+	}
+	defer file.Close()
+	
+	// If multiple files, print the filename
+	if len(cfg.Paths) > 1 {
+		fmt.Fprintf(cfg.Output, "%s:\n", path)
+	}
+	
+	// Process the file
+	return processReaderForLanguage(file, cfg)
+}
+
+// processReaderForLanguage handles language detection for any io.Reader
+func processReaderForLanguage(r io.Reader, cfg *Config) error {
+	// Create a buffer to allow reading the input twice
+	var buf bytes.Buffer
+	tee := io.TeeReader(r, &buf)
+	
+	// First pass: detect language
+	langTag, langName, err := detectLanguage(tee)
+	if err != nil {
+		return fmt.Errorf("failed to detect language: %w", err)
+	}
+	
+	// Second pass: handle standard counting options if requested
+	var count int
+	var needsCount bool
+	switch {
+	case cfg.Line:
+		count = countLines(&buf)
+		needsCount = true
+	case cfg.Char:
+		count = countChars(&buf)
+		needsCount = true
+	case cfg.Word:
+		count = countWords(&buf)
+		needsCount = true
+	}
+	
+	// Print language info
+	if cfg.ShowLanguageName {
+		fmt.Fprintf(cfg.Output, "Language: %s\n", langName)
+	} else {
+		fmt.Fprintf(cfg.Output, "Language: %s\n", langTag)
+	}
+	
+	// Print count if needed
+	if needsCount {
+		fmt.Fprintf(cfg.Output, "Count: %d\n", count)
+	}
+	
+	return nil
+}
+
+// processFileForCounting handles standard counting operations for a specific file
+func processFileForCounting(path string, cfg *Config) error {
+	// Open the file
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %w", path, err)
+	}
+	defer file.Close()
+	
+	// Count based on the selected option
+	var count int
+	switch {
+	case cfg.Line:
+		count = countLines(file)
+	case cfg.Char:
+		count = countChars(file)
+	case cfg.Word:
+		count = countWords(file)
+	}
+	
+	// If multiple files, print the filename with the count
+	if len(cfg.Paths) > 1 {
+		fmt.Fprintf(cfg.Output, "%s: %d\n", path, count)
+	} else {
+		fmt.Fprintln(cfg.Output, count)
+	}
+	
 	return nil
 }
 

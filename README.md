@@ -82,14 +82,23 @@ echo "hello world" | ./wc
 # Count lines of code in multiple directories
 ./wc --loc dir1 dir2 dir3
 
-# Detect language of text
+# Detect language of text (from stdin)
 ./wc --lang < file.txt
 
-# Detect language with human-readable name
+# Detect language with human-readable name (from stdin)
 ./wc --lang-name < file.txt
 
+# Detect language of specific file
+./wc --lang file.txt
+
+# Detect language of multiple files
+./wc --lang file1.txt file2.txt
+
+# Detect language with human-readable name
+./wc --lang-name file.txt
+
 # Detect language and count words
-./wc --lang -w < file.txt
+./wc --lang -w file.txt
 ```
 
 ## Examples
@@ -123,6 +132,17 @@ Language: Spanish
 echo "Le renard brun rapide saute par-dessus le chien paresseux" | ./wc --lang -w
 Language: fr
 Count: 10
+
+# Detecting language of specific files
+./wc --lang main.go README.md
+main.go:
+Language: en-US
+README.md:
+Language: en-US
+
+# Detecting language with human-readable name from file
+./wc --lang-name README.md
+Language: English (US)
 ```
 
 ## Dependencies
