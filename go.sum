@@ -1,3 +1,5 @@
+github.com/abadojack/whatlanggo v1.0.1 h1:19N6YogDnf71CTHm3Mp2qhYfkRdyvbgwWdd2EPxJRG4=
+github.com/abadojack/whatlanggo v1.0.1/go.mod h1:66WiQbSbJBIlOZMsvbKe5m6pzQovxCH9B/K8tQB2uoc=
 github.com/boyter/scc v2.12.0+incompatible h1:Sxhi1Ry3gdreoaF0xEITQSdjR+pJT0cXHXhlDw5FHT0=
 github.com/boyter/scc v2.12.0+incompatible/go.mod h1:VB5w4e0dahmIiKnpZ7LRh/sjauoY0BmCWjIzZcShNY0=
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=

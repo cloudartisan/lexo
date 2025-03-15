@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/abadojack/whatlanggo"
 )
 
 // LanguageSummary represents a summary of a language from scc JSON output
@@ -65,13 +67,16 @@ func detectLanguage(r io.Reader) (string, string, error) {
 	var buf bytes.Buffer
 	tee := io.TeeReader(r, &buf)
 	
-	// Read sample text (up to 1000 words for detection)
+	// Read all the text (up to a reasonable limit)
+	// This gives better accuracy than just a small sample
 	scanner := bufio.NewScanner(tee)
 	scanner.Split(bufio.ScanWords)
 	
 	var sample strings.Builder
 	wordCount := 0
-	for scanner.Scan() && wordCount < 1000 {
+	const maxWords = 1000 // Reasonable limit to avoid memory issues with very large files
+	
+	for scanner.Scan() && wordCount < maxWords {
 		if wordCount > 0 {
 			sample.WriteString(" ")
 		}
@@ -88,85 +93,45 @@ func detectLanguage(r io.Reader) (string, string, error) {
 		return "und", "Unknown", nil
 	}
 	
-	// For test purposes, we'll use a simple heuristic for language detection
-	// In a real implementation, this would use a proper language detection library
-	text := strings.ToLower(sample.String())
+	// Use whatlanggo for accurate language detection
+	text := sample.String()
+	// No special options needed - the default algorithm is already quite good
+	info := whatlanggo.Detect(text)
 	
-	// Simple language detection based on common words
-	var langTag string
-	var langName string
+	// Get the ISO language code
+	langTag := info.Lang.Iso6391()
 	
-	switch {
-	case hasSpanishMarkers(text):
-		langTag = "es"
-		langName = "Spanish"
-	case hasFrenchMarkers(text):
-		langTag = "fr"
-		langName = "French"
-	case hasGermanMarkers(text):
-		langTag = "de"
-		langName = "German"
-	case hasItalianMarkers(text):
-		langTag = "it"
-		langName = "Italian"
-	default:
-		// Default to English if no specific markers are found
-		langTag = "en"
-		langName = "English"
+	// Get the English name of the language
+	langName := info.Lang.String()
+	
+	// If the language is unknown, fall back to a sensible default
+	if langTag == "" {
+		return "und", "Unknown", nil
 	}
 	
-	// For demonstration purposes, we'll add a fake region code for English
-	// to show how the region code would appear
-	if langTag == "en" {
+	// For certain languages with common regional variants, add region code
+	// This is just an example - in a real system this would be more sophisticated
+	switch langTag {
+	case "en":
+		// For demo purposes, we'll mark English as US English
+		// A more sophisticated implementation might infer the region from the text
 		langTag = "en-US"
 		langName = "English (US)"
+	case "es":
+		// For demo purposes, we'll mark Spanish as Spanish from Spain
+		langTag = "es-ES"
+		langName = "Spanish (Spain)"
+	case "pt":
+		// For demo purposes, we'll mark Portuguese as Brazilian Portuguese
+		langTag = "pt-BR"
+		langName = "Portuguese (Brazil)"
+	case "zh":
+		// For demo purposes, we'll mark Chinese as Simplified Chinese
+		langTag = "zh-CN"
+		langName = "Chinese (Simplified)"
 	}
 	
 	return langTag, langName, nil
-}
-
-// Simple language marker detection functions
-func hasSpanishMarkers(text string) bool {
-	markers := []string{"el", "la", "los", "las", "es", "son", "está", "están", "y", "o", "pero", 
-		"porque", "como", "qué", "quién", "dónde", "cuándo", "por qué", "zorro", "rápido", "sobre", "perro"}
-	return containsAny(text, markers)
-}
-
-func hasFrenchMarkers(text string) bool {
-	markers := []string{"le", "la", "les", "un", "une", "des", "est", "sont", "et", "ou", "mais", 
-		"parce que", "comme", "quoi", "qui", "où", "quand", "pourquoi", "renard", "brun", "rapide", "saute", "chien"}
-	return containsAny(text, markers)
-}
-
-func hasGermanMarkers(text string) bool {
-	markers := []string{"der", "die", "das", "ein", "eine", "ist", "sind", "und", "oder", "aber", 
-		"weil", "wie", "was", "wer", "wo", "wann", "warum", "fuchs", "springt", "über", "hund"}
-	return containsAny(text, markers)
-}
-
-func hasItalianMarkers(text string) bool {
-	markers := []string{"il", "la", "i", "gli", "le", "un", "una", "è", "sono", "e", "o", "ma", 
-		"perché", "come", "cosa", "chi", "dove", "quando", "volpe", "salta", "sopra", "cane"}
-	return containsAny(text, markers)
-}
-
-func containsAny(text string, markers []string) bool {
-	words := strings.Fields(text)
-	wordMap := make(map[string]bool)
-	
-	for _, word := range words {
-		wordMap[word] = true
-	}
-	
-	count := 0
-	for _, marker := range markers {
-		if wordMap[marker] {
-			count++
-		}
-	}
-	
-	// If text contains at least 2 marker words, consider it a match
-	return count >= 2
 }
 
 func countLinesOfCode(paths []string) error {
