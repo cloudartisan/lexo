@@ -4,11 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // LanguageSummary represents a summary of a language from scc JSON output
@@ -32,6 +32,30 @@ func countWords(r io.Reader) int {
 	}
 
 	return wc
+}
+
+func countLines(r io.Reader) int {
+	scanner := bufio.NewScanner(r)
+	scanner.Split(bufio.ScanLines)
+
+	lc := 0
+	for scanner.Scan() {
+		lc++
+	}
+
+	return lc
+}
+
+func countChars(r io.Reader) int {
+	scanner := bufio.NewScanner(r)
+	scanner.Split(bufio.ScanRunes)
+
+	cc := 0
+	for scanner.Scan() {
+		cc++
+	}
+
+	return cc
 }
 
 func countLinesOfCode(paths []string) error {
@@ -85,30 +109,126 @@ func countLinesOfCode(paths []string) error {
 	return nil
 }
 
-func main() {
-	// Define command line flags
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [--loc] [path...]\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Count words from stdin or lines of code in specified paths.\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		flag.PrintDefaults()
+// Config holds the configuration for the program
+type Config struct {
+	LOC          bool
+	Line         bool
+	Char         bool
+	Word         bool
+	Paths        []string
+	Input        io.Reader
+	Output       io.Writer
+	ErrorOutput  io.Writer
+}
+
+// NewDefaultConfig creates a default configuration
+func NewDefaultConfig() *Config {
+	return &Config{
+		Input:       os.Stdin,
+		Output:      os.Stdout,
+		ErrorOutput: os.Stderr,
+	}
+}
+
+// ParseFlags parses command-line flags and updates the configuration
+func ParseFlags(cfg *Config) {
+	// Check for help flag manually
+	for _, arg := range os.Args[1:] {
+		if arg == "-h" || arg == "--help" {
+			fmt.Fprintf(cfg.ErrorOutput, "Usage: %s [flags] [path...]\n\n", os.Args[0])
+			fmt.Fprintf(cfg.ErrorOutput, "Count words, lines, characters, or lines of code.\n")
+			fmt.Fprintf(cfg.ErrorOutput, "By default, counts words from stdin.\n\n")
+			fmt.Fprintf(cfg.ErrorOutput, "Options:\n")
+			fmt.Fprintf(cfg.ErrorOutput, "  -w, --words     Count words (default behavior)\n")
+			fmt.Fprintf(cfg.ErrorOutput, "  -l, --lines     Count lines instead of words\n")
+			fmt.Fprintf(cfg.ErrorOutput, "  -c, --chars     Count characters instead of words\n")
+			fmt.Fprintf(cfg.ErrorOutput, "      --loc       Count lines of code instead of words\n")
+			fmt.Fprintf(cfg.ErrorOutput, "  -h, --help      Show this help message\n")
+			os.Exit(0)
+		}
 	}
 	
-	locFlag := flag.Bool("loc", false, "Count lines of code instead of words")
-	flag.Parse()
-
-	if *locFlag {
-		args := flag.Args()
-		paths := []string{"."}
-		if len(args) > 0 {
-			paths = args
+	// Define flags
+	var loc bool
+	var l, c, w bool
+	var paths []string
+	
+	// Process args to handle GNU-style long options
+	for _, arg := range os.Args[1:] {
+		// Process flags
+		switch arg {
+		case "--loc":
+			loc = true
+			continue
+		case "-l", "--lines":
+			l = true
+			continue
+		case "-c", "--chars":
+			c = true
+			continue
+		case "-w", "--words":
+			w = true
+			continue
 		}
 		
-		if err := countLinesOfCode(paths); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+		// Handle non-flag arguments (paths for --loc)
+		if loc && !strings.HasPrefix(arg, "-") {
+			paths = append(paths, arg)
+			continue
 		}
-	} else {
-		fmt.Println(countWords(os.Stdin))
+	}
+	
+	// Update the configuration
+	cfg.LOC = loc
+	cfg.Line = l
+	cfg.Char = c
+	cfg.Word = w || (!cfg.Line && !cfg.Char && !cfg.LOC)
+	
+	// Set paths for LOC feature
+	if loc {
+		if len(paths) > 0 {
+			cfg.Paths = paths
+		} else {
+			cfg.Paths = []string{"."}
+		}
+	}
+}
+
+// Run executes the program with the given configuration
+func Run(cfg *Config) error {
+	// LOC flag takes precedence
+	if cfg.LOC {
+		if err := countLinesOfCode(cfg.Paths); err != nil {
+			return err
+		}
+		return nil
+	}
+	
+	// Handle standard counting options
+	var count int
+	switch {
+	case cfg.Line:
+		count = countLines(cfg.Input)
+	case cfg.Char:
+		count = countChars(cfg.Input)
+	case cfg.Word:
+		count = countWords(cfg.Input)
+	}
+	
+	fmt.Fprintln(cfg.Output, count)
+	return nil
+}
+
+func main() {
+	// Create default configuration
+	cfg := NewDefaultConfig()
+	
+	// Parse command-line flags
+	ParseFlags(cfg)
+	
+	// Run the program
+	if err := Run(cfg); err != nil {
+		fmt.Fprintf(cfg.ErrorOutput, "Error: %v\n", err)
+		os.Exit(1)
 	}
 }

@@ -52,7 +52,7 @@ This will create a `wc` executable in the current directory.
 ## Usage
 
 ```bash
-# Count words from stdin
+# Count words from stdin (default)
 ./wc
 
 # Count words from a file
@@ -60,6 +60,18 @@ cat file.txt | ./wc
 
 # Count words from a command output
 echo "hello world" | ./wc
+
+# Count words explicitly
+./wc -w
+./wc --words
+
+# Count lines instead of words
+./wc -l
+./wc --lines
+
+# Count characters instead of words
+./wc -c
+./wc --chars
 
 # Count lines of code in current directory
 ./wc --loc
@@ -74,9 +86,17 @@ echo "hello world" | ./wc
 ## Examples
 
 ```bash
-# Counting words
+# Counting words (default)
 echo "The quick brown fox jumps over the lazy dog" | ./wc
 9
+
+# Counting lines
+echo -e "line 1\nline 2\nline 3" | ./wc -l
+3
+
+# Counting characters
+echo "hello" | ./wc -c
+5
 
 # Counting lines of code
 ./wc --loc .

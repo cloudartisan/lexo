@@ -1,0 +1,37 @@
+name: Go Build and Test
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.16'
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Install Dependencies
+      run: go install github.com/boyter/scc@latest
+
+    - name: Test
+      run: go test -v -coverprofile=coverage.out ./...
+
+    - name: Check Coverage
+      run: |
+        coverage=$(go tool cover -func=coverage.out | grep total | awk '{print substr($3, 1, length($3)-1)}')
+        echo "Code coverage: $coverage%"
+        if (( $(echo "$coverage < 80" | bc -l) )); then
+          echo "Code coverage is below 80%"
+          exit 1
+        fi
