@@ -1,4 +1,4 @@
-module cloudartisan.com/wc
+module cloudartisan.com/lexo
 
 go 1.23.0
 

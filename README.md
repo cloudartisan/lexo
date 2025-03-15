@@ -1,7 +1,6 @@
-# wc - Word Counter
+# lexo - Text Analysis Utility
 
-A simple command-line utility that counts words from standard input. Learning
-exercise for Go.
+A versatile command-line utility for text and code analysis. Evolved from the classic Unix `wc` command with enhanced features for modern text processing.
 
 ## Installation
 
@@ -47,101 +46,108 @@ Once Go is installed:
 go build
 ```
 
-This will create a `wc` executable in the current directory.
+This will create a `lexo` executable in the current directory.
+
+### Installation
+To install lexo globally on your system:
+
+```bash
+go install
+```
 
 ## Usage
 
 ```bash
 # Count words from stdin (default)
-./wc
+lexo
 
 # Count words from a file
-cat file.txt | ./wc
+cat file.txt | lexo
 
 # Count words from a command output
-echo "hello world" | ./wc
+echo "hello world" | lexo
 
 # Count words explicitly
-./wc -w
-./wc --words
+lexo -w
+lexo --words
 
 # Count lines instead of words
-./wc -l
-./wc --lines
+lexo -l
+lexo --lines
 
 # Count characters instead of words
-./wc -c
-./wc --chars
+lexo -c
+lexo --chars
 
 # Count lines of code in current directory
-./wc --loc
+lexo --loc
 
 # Count lines of code in a specific directory
-./wc --loc /path/to/project
+lexo --loc /path/to/project
 
 # Count lines of code in multiple directories
-./wc --loc dir1 dir2 dir3
+lexo --loc dir1 dir2 dir3
 
 # Detect language of text (from stdin)
-./wc --lang < file.txt
+lexo --lang < file.txt
 
 # Detect language with human-readable name (from stdin)
-./wc --lang-name < file.txt
+lexo --lang-name < file.txt
 
 # Detect language of specific file
-./wc --lang file.txt
+lexo --lang file.txt
 
 # Detect language of multiple files
-./wc --lang file1.txt file2.txt
+lexo --lang file1.txt file2.txt
 
 # Detect language with human-readable name
-./wc --lang-name file.txt
+lexo --lang-name file.txt
 
 # Detect language and count words
-./wc --lang -w file.txt
+lexo --lang -w file.txt
 ```
 
 ## Examples
 
 ```bash
 # Counting words (default)
-echo "The quick brown fox jumps over the lazy dog" | ./wc
+echo "The quick brown fox jumps over the lazy dog" | lexo
 9
 
 # Counting lines
-echo -e "line 1\nline 2\nline 3" | ./wc -l
+echo -e "line 1\nline 2\nline 3" | lexo -l
 3
 
 # Counting characters
-echo "hello" | ./wc -c
+echo "hello" | lexo -c
 5
 
 # Counting lines of code
-./wc --loc .
+lexo --loc .
 125
 
 # Detecting language
-echo "The quick brown fox jumps over the lazy dog" | ./wc --lang
-Language: en
+echo "The quick brown fox jumps over the lazy dog" | lexo --lang
+Language: en-US
 
 # Detecting language with human-readable name
-echo "El zorro marrón rápido salta sobre el perro perezoso" | ./wc --lang-name
-Language: Spanish
+echo "El zorro marrón rápido salta sobre el perro perezoso" | lexo --lang-name
+Language: Spanish (Spain)
 
 # Detecting language and counting words
-echo "Le renard brun rapide saute par-dessus le chien paresseux" | ./wc --lang -w
+echo "Le renard brun rapide saute par-dessus le chien paresseux" | lexo --lang -w
 Language: fr
 Count: 10
 
 # Detecting language of specific files
-./wc --lang main.go README.md
+lexo --lang main.go README.md
 main.go:
-Language: en-US
+Language: fr
 README.md:
 Language: en-US
 
 # Detecting language with human-readable name from file
-./wc --lang-name README.md
+lexo --lang-name README.md
 Language: English (US)
 ```
 

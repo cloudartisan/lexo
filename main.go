@@ -214,7 +214,7 @@ func ParseFlags(cfg *Config) {
 	for _, arg := range os.Args[1:] {
 		if arg == "-h" || arg == "--help" {
 			fmt.Fprintf(cfg.ErrorOutput, "Usage: %s [flags] [path...]\n\n", os.Args[0])
-			fmt.Fprintf(cfg.ErrorOutput, "Count words, lines, characters, or lines of code.\n")
+			fmt.Fprintf(cfg.ErrorOutput, "Text and code analysis utility for counting, language detection, and more.\n")
 			fmt.Fprintf(cfg.ErrorOutput, "By default, counts words from stdin.\n\n")
 			fmt.Fprintf(cfg.ErrorOutput, "Options:\n")
 			fmt.Fprintf(cfg.ErrorOutput, "  -w, --words       Count words (default behavior)\n")
