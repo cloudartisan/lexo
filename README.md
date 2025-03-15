@@ -127,6 +127,10 @@ Count: 10
 
 ## Dependencies
 
+This tool has the following dependencies:
+
+### SCC (Sloc, Cloc and Code)
+
 For the `--loc` feature to work, you need to have the `scc` tool installed:
 
 ```bash
@@ -134,6 +138,10 @@ go install github.com/boyter/scc@latest
 ```
 
 This will install the [scc (Sloc, Cloc and Code)](https://github.com/boyter/scc) tool, which provides accurate code counting with support for many languages and smart handling of exclusion patterns.
+
+### Whatlanggo
+
+The `--lang` and `--lang-name` features use the [whatlanggo](https://github.com/abadojack/whatlanggo) library for language detection, which supports over 80 languages. This dependency is managed through Go modules and doesn't require separate installation.
 
 ## Development
 
