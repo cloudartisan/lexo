@@ -98,6 +98,8 @@ func TestLOCFeatureExists(t *testing.T) {
 		"-l", "--lines",
 		"-c", "--chars",
 		"--loc",
+		"--lang",
+		"--lang-name",
 	}
 	
 	for _, flag := range requiredFlags {
@@ -186,7 +188,29 @@ func TestParseFlags(t *testing.T) {
 				Paths: []string{"dir1", "dir2"},
 			},
 		},
-	}
+			{
+				name: "lang flag",
+				args: []string{"wc", "--lang"},
+				expected: &Config{
+					DetectLanguage: true,
+				},
+			},
+			{
+				name: "lang-name flag",
+				args: []string{"wc", "--lang-name"},
+				expected: &Config{
+					DetectLanguage:   true,
+					ShowLanguageName: true,
+				},
+			},
+			{
+				name: "lang with words",
+				args: []string{"wc", "--lang", "-w"},
+				expected: &Config{
+					DetectLanguage: true,
+					Word:           true,
+				},
+			},	}
 	
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -263,6 +287,10 @@ func TestCommandLineFlags(t *testing.T) {
 		{"chars short", "hello", []string{"-c"}, "5"},
 		{"chars long", "hello", []string{"--chars"}, "5"},
 		{"empty input", "", []string{}, "0"},
+		// We'll use contains matching for language detection tests since exact output may vary
+		{"lang flag", "This is English text for testing the language detection feature", []string{"--lang"}, "Language: en"},
+		{"lang with words", "This is English text for testing the language detection feature", []string{"--lang", "-w"}, "Count: 10"},
+		{"lang name flag", "This is English text for testing the language detection feature", []string{"--lang-name"}, "Language: English"},
 	}
 	
 	for _, tc := range tests {
@@ -284,8 +312,17 @@ func TestCommandLineFlags(t *testing.T) {
 			}
 			
 			actual := strings.TrimSpace(string(output))
-			if actual != tc.expected {
-				t.Errorf("Expected %q, got %q", tc.expected, actual)
+			
+			// For language detection tests, we'll use contains matching
+			if strings.Contains(tc.name, "lang") {
+				if !strings.Contains(actual, tc.expected) {
+					t.Errorf("Expected output to contain %q, got %q", tc.expected, actual)
+				}
+			} else {
+				// For regular tests, we'll use exact matching
+				if actual != tc.expected {
+					t.Errorf("Expected %q, got %q", tc.expected, actual)
+				}
 			}
 		})
 	}
@@ -319,6 +356,40 @@ func TestErrorHandling(t *testing.T) {
 }
 
 // TestConfig tests the configuration functions
+func TestDetectLanguage(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		expectLangTag string
+	}{
+		{"english", "This is English text for testing purposes.", "en"},
+		{"spanish", "El zorro marrón rápido salta sobre el perro perezoso.", "es"},
+		{"french", "Le renard brun rapide saute par-dessus le chien paresseux.", "fr"},
+		{"german", "Der braune Fuchs springt über den faulen Hund.", "de"},
+		{"italian", "La volpe marrone rapida salta sopra il cane pigro.", "it"},
+		{"empty", "", "und"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := bytes.NewBufferString(tc.input)
+			
+			langTag, _, err := detectLanguage(b)
+			if err != nil {
+				t.Fatalf("detectLanguage returned error: %v", err)
+			}
+			
+			// Only check if the language tag contains the expected base language
+			// since exact region matching can be variable
+			if tc.expectLangTag != "und" && !strings.HasPrefix(langTag, tc.expectLangTag) {
+				t.Errorf("Expected language tag starting with %q, got %q", tc.expectLangTag, langTag)
+			} else if tc.expectLangTag == "und" && langTag != "und" {
+				t.Errorf("Expected language tag %q, got %q", tc.expectLangTag, langTag)
+			}
+		})
+	}
+}
+
 func TestConfig(t *testing.T) {
 	// Test NewDefaultConfig
 	cfg := NewDefaultConfig()
@@ -332,6 +403,7 @@ func TestConfig(t *testing.T) {
 		input    string
 		config   *Config
 		expected string
+		contains bool // if true, check that output contains expected, rather than exact match
 	}{
 		{
 			name:  "word count",
@@ -341,6 +413,7 @@ func TestConfig(t *testing.T) {
 				Input: nil, // will be set in the test
 			},
 			expected: "3",
+			contains: false,
 		},
 		{
 			name:  "line count",
@@ -350,6 +423,7 @@ func TestConfig(t *testing.T) {
 				Input: nil, // will be set in the test
 			},
 			expected: "3",
+			contains: false,
 		},
 		{
 			name:  "char count",
@@ -359,6 +433,39 @@ func TestConfig(t *testing.T) {
 				Input: nil, // will be set in the test
 			},
 			expected: "5",
+			contains: false,
+		},
+		{
+			name:  "language detection",
+			input: "This is English text for testing.",
+			config: &Config{
+				DetectLanguage: true,
+				Input:          nil, // will be set in the test
+			},
+			expected: "Language: en-US",
+			contains: true,
+		},
+		{
+			name:  "language detection with name",
+			input: "This is English text for testing.",
+			config: &Config{
+				DetectLanguage:   true,
+				ShowLanguageName: true,
+				Input:            nil, // will be set in the test
+			},
+			expected: "Language: English",
+			contains: true,
+		},
+		{
+			name:  "language detection with word count",
+			input: "This is English text for testing.",
+			config: &Config{
+				DetectLanguage: true,
+				Word:           true,
+				Input:          nil, // will be set in the test
+			},
+			expected: "Count: 6",
+			contains: true,
 		},
 	}
 	
@@ -379,8 +486,16 @@ func TestConfig(t *testing.T) {
 			
 			// Check output
 			actual := strings.TrimSpace(outBuf.String())
-			if actual != tc.expected {
-				t.Errorf("Expected %q, got %q", tc.expected, actual)
+			if tc.contains {
+				// For language detection tests, we just check if the output contains the expected string
+				if !strings.Contains(actual, tc.expected) {
+					t.Errorf("Expected output to contain %q, got %q", tc.expected, actual)
+				}
+			} else {
+				// For regular tests, we use exact matching
+				if actual != tc.expected {
+					t.Errorf("Expected %q, got %q", tc.expected, actual)
+				}
 			}
 		})
 	}
