@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/abadojack/whatlanggo"
@@ -34,6 +35,80 @@ func countWords(r io.Reader) int {
 	}
 
 	return wc
+}
+
+// WordFrequency represents a word and its frequency count
+type WordFrequency struct {
+	Word  string
+	Count int
+}
+
+// analyzeWordFrequency counts the frequency of each word in the text
+// and returns the results sorted by frequency (highest first) or alphabetically
+func analyzeWordFrequency(r io.Reader, sortByCount bool, limit int) ([]WordFrequency, error) {
+	// If limit is 0 or negative, set a reasonable default
+	if limit <= 0 {
+		limit = 10
+	}
+
+	// Create a scanner to read words
+	scanner := bufio.NewScanner(r)
+	scanner.Split(bufio.ScanWords)
+
+	// Use a map to count word frequencies
+	wordCounts := make(map[string]int)
+
+	// Process each word
+	for scanner.Scan() {
+		word := scanner.Text()
+		
+		// Convert to lowercase for case-insensitive counting
+		word = strings.ToLower(word)
+		
+		// Remove any punctuation at the start or end of the word
+		word = strings.Trim(word, ".,;:!?\"'()[]{}")
+		
+		// Skip empty strings after trimming
+		if word == "" {
+			continue
+		}
+		
+		// Increment the word count
+		wordCounts[word]++
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	// Convert map to slice for sorting
+	var frequencies []WordFrequency
+	for word, count := range wordCounts {
+		frequencies = append(frequencies, WordFrequency{Word: word, Count: count})
+	}
+
+	// Sort the frequencies
+	if sortByCount {
+		// Sort by count (descending) with alphabetical tiebreaker
+		sort.Slice(frequencies, func(i, j int) bool {
+			if frequencies[i].Count == frequencies[j].Count {
+				return frequencies[i].Word < frequencies[j].Word
+			}
+			return frequencies[i].Count > frequencies[j].Count
+		})
+	} else {
+		// Sort alphabetically
+		sort.Slice(frequencies, func(i, j int) bool {
+			return frequencies[i].Word < frequencies[j].Word
+		})
+	}
+
+	// Apply limit
+	if limit > 0 && limit < len(frequencies) {
+		frequencies = frequencies[:limit]
+	}
+
+	return frequencies, nil
 }
 
 func countLines(r io.Reader) int {
@@ -193,6 +268,9 @@ type Config struct {
 	Word               bool
 	DetectLanguage     bool
 	ShowLanguageName   bool
+	FrequencyAnalysis  bool
+	FrequencyLimit     int
+	SortByCount        bool
 	Paths              []string
 	Input              io.Reader
 	Output             io.Writer
@@ -202,9 +280,10 @@ type Config struct {
 // NewDefaultConfig creates a default configuration
 func NewDefaultConfig() *Config {
 	return &Config{
-		Input:       os.Stdin,
-		Output:      os.Stdout,
-		ErrorOutput: os.Stderr,
+		Input:          os.Stdin,
+		Output:         os.Stdout,
+		ErrorOutput:    os.Stderr,
+		FrequencyLimit: 10, // Default to showing top 10 words
 	}
 }
 
@@ -223,6 +302,9 @@ func ParseFlags(cfg *Config) {
 			fmt.Fprintf(cfg.ErrorOutput, "      --loc         Count lines of code in specified paths or current directory\n")
 			fmt.Fprintf(cfg.ErrorOutput, "      --lang        Detect language of text in specified files or stdin\n")
 			fmt.Fprintf(cfg.ErrorOutput, "      --lang-name   Show human-readable language name (implies --lang)\n")
+			fmt.Fprintf(cfg.ErrorOutput, "      --freq        Analyze word frequency\n")
+			fmt.Fprintf(cfg.ErrorOutput, "      --sort-count  Sort frequency by count (default is alphabetical)\n")
+			fmt.Fprintf(cfg.ErrorOutput, "      --limit N     Limit frequency results to top N words\n")
 			fmt.Fprintf(cfg.ErrorOutput, "  -h, --help        Show this help message\n")
 			os.Exit(0)
 		}
@@ -232,10 +314,14 @@ func ParseFlags(cfg *Config) {
 	var loc bool
 	var l, c, w bool
 	var lang, langName bool
+	var freq, sortByCount bool
+	var limit int
 	var paths []string
 	
 	// Process args to handle GNU-style long options
-	for _, arg := range os.Args[1:] {
+	for i := 0; i < len(os.Args[1:]); i++ {
+		arg := os.Args[1:][i]
+		
 		// Process flags
 		switch arg {
 		case "--loc":
@@ -257,10 +343,28 @@ func ParseFlags(cfg *Config) {
 			lang = true
 			langName = true
 			continue
+		case "--freq":
+			freq = true
+			continue
+		case "--sort-count":
+			sortByCount = true
+			continue
+		case "--limit":
+			// Check if there's a next argument for the limit value
+			if i+1 < len(os.Args[1:]) {
+				// Try to parse the next argument as a number
+				if n, err := fmt.Sscanf(os.Args[1:][i+1], "%d", &limit); n == 1 && err == nil {
+					// Skip the next arg since we've consumed it
+					i++
+					continue
+				}
+			}
+			// If we can't parse a number, use the default limit
+			continue
 		}
 		
 		// Handle non-flag arguments (paths for --loc or --lang)
-		if (loc || lang) && !strings.HasPrefix(arg, "-") {
+		if (loc || lang || freq) && !strings.HasPrefix(arg, "-") {
 			paths = append(paths, arg)
 			continue
 		}
@@ -272,7 +376,12 @@ func ParseFlags(cfg *Config) {
 	cfg.Char = c
 	cfg.DetectLanguage = lang
 	cfg.ShowLanguageName = langName
-	cfg.Word = w || (!cfg.Line && !cfg.Char && !cfg.LOC && !cfg.DetectLanguage)
+	cfg.FrequencyAnalysis = freq
+	cfg.SortByCount = sortByCount
+	if limit > 0 {
+		cfg.FrequencyLimit = limit
+	}
+	cfg.Word = w || (!cfg.Line && !cfg.Char && !cfg.LOC && !cfg.DetectLanguage && !cfg.FrequencyAnalysis)
 	
 	// Set paths
 	if len(paths) > 0 {
@@ -311,6 +420,23 @@ func Run(cfg *Config) error {
 		
 		// No paths, process stdin
 		return processReaderForLanguage(cfg.Input, cfg)
+	}
+	
+	// If we're doing frequency analysis, handle that
+	if cfg.FrequencyAnalysis {
+		// Check if paths are provided
+		if len(cfg.Paths) > 0 {
+			// Process each file
+			for _, path := range cfg.Paths {
+				if err := processFileForFrequency(path, cfg); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		
+		// No paths, process stdin
+		return processReaderForFrequency(cfg.Input, cfg)
 	}
 	
 	// Handle standard counting options
@@ -430,6 +556,61 @@ func processFileForCounting(path string, cfg *Config) error {
 	return nil
 }
 
+// processFileForFrequency handles word frequency analysis for a specific file
+func processFileForFrequency(path string, cfg *Config) error {
+	// Open the file
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("failed to open file %s: %w", path, err)
+	}
+	defer file.Close()
+	
+	// If multiple files, print the filename
+	if len(cfg.Paths) > 1 {
+		fmt.Fprintf(cfg.Output, "%s:\n", path)
+	}
+	
+	// Process the file
+	return processReaderForFrequency(file, cfg)
+}
+
+// processReaderForFrequency handles word frequency analysis for any io.Reader
+func processReaderForFrequency(r io.Reader, cfg *Config) error {
+	// Analyze word frequency
+	frequencies, err := analyzeWordFrequency(r, cfg.SortByCount, cfg.FrequencyLimit)
+	if err != nil {
+		return fmt.Errorf("failed to analyze word frequency: %w", err)
+	}
+	
+	// Determine the longest word to format output nicely
+	maxWordLen := 0
+	for _, wf := range frequencies {
+		if len(wf.Word) > maxWordLen {
+			maxWordLen = len(wf.Word)
+		}
+	}
+	
+	// Print header
+	if cfg.SortByCount {
+		fmt.Fprintf(cfg.Output, "Word frequency (sorted by count):\n")
+	} else {
+		fmt.Fprintf(cfg.Output, "Word frequency (sorted alphabetically):\n")
+	}
+	
+	// Print a separator line
+	fmt.Fprintf(cfg.Output, "%s  %s\n", strings.Repeat("-", maxWordLen), "------")
+	
+	// Print the results in a nicely formatted two-column layout
+	for _, wf := range frequencies {
+		fmt.Fprintf(cfg.Output, "%-*s  %6d\n", maxWordLen, wf.Word, wf.Count)
+	}
+	
+	return nil
+}
+
+// Allow os.Exit to be mocked in tests
+var osExit = os.Exit
+
 func main() {
 	// Create default configuration
 	cfg := NewDefaultConfig()
@@ -440,6 +621,6 @@ func main() {
 	// Run the program
 	if err := Run(cfg); err != nil {
 		fmt.Fprintf(cfg.ErrorOutput, "Error: %v\n", err)
-		os.Exit(1)
+		osExit(1)
 	}
 }

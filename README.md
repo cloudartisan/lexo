@@ -1,6 +1,6 @@
 # lexo - Text Analysis Utility
 
-A versatile command-line utility for text and code analysis. Evolved from the classic Unix `wc` command with enhanced features for modern text processing.
+A versatile command-line utility for text and code analysis. Evolved from the classic Unix `wc` command with enhanced features for modern text processing, including language detection and word frequency analysis.
 
 ## Installation
 
@@ -105,6 +105,18 @@ lexo --lang-name file.txt
 
 # Detect language and count words
 lexo --lang -w file.txt
+
+# Analyze word frequency (alphabetical order)
+lexo --freq file.txt
+
+# Analyze word frequency, sorted by count (most frequent first)
+lexo --freq --sort-count file.txt
+
+# Limit frequency results to top N words
+lexo --freq --sort-count --limit 5 file.txt
+
+# Analyze multiple files
+lexo --freq file1.txt file2.txt
 ```
 
 ## Examples
@@ -149,6 +161,26 @@ Language: en-US
 # Detecting language with human-readable name from file
 lexo --lang-name README.md
 Language: English (US)
+
+# Word frequency analysis
+lexo --freq --sort-count --limit 5 README.md
+Word frequency (sorted by count):
+-----------  ------
+the          15
+to           12
+language     8
+of           7
+for          6
+
+# Alphabetical word frequency
+lexo --freq --limit 5 README.md
+Word frequency (sorted alphabetically):
+-----------  ------
+a            5
+about        1
+accurately   1
+add          1
+all          3
 ```
 
 ## Dependencies
@@ -189,7 +221,21 @@ go test -run TestCountWords
 
 # Check test coverage
 go test -cover ./...
+
+# Generate HTML coverage report
+go test -coverprofile=coverage.out
+go tool cover -html=coverage.out -o coverage.html
 ```
+
+### Test Coverage
+
+The project maintains comprehensive test coverage to ensure reliability and stability. Tests cover all major functionality including:
+
+- Word, line, and character counting
+- Language detection
+- Word frequency analysis
+- Command-line flag parsing
+- Error handling
 
 ## License
 
