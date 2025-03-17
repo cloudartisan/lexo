@@ -363,8 +363,8 @@ func ParseFlags(cfg *Config) {
 			continue
 		}
 		
-		// Handle non-flag arguments (paths for --loc or --lang)
-		if (loc || lang || freq) && !strings.HasPrefix(arg, "-") {
+		// Handle non-flag arguments (paths for all operations)
+		if !strings.HasPrefix(arg, "-") {
 			paths = append(paths, arg)
 			continue
 		}
@@ -381,7 +381,15 @@ func ParseFlags(cfg *Config) {
 	if limit > 0 {
 		cfg.FrequencyLimit = limit
 	}
-	cfg.Word = w || (!cfg.Line && !cfg.Char && !cfg.LOC && !cfg.DetectLanguage && !cfg.FrequencyAnalysis)
+	
+	// Set default behavior to match wc: if no counting flags are specified, show lines, words, and chars
+	if !w && !l && !c && !loc && !lang && !freq {
+		cfg.Line = true
+		cfg.Word = true 
+		cfg.Char = true
+	} else {
+		cfg.Word = w
+	}
 	
 	// Set paths
 	if len(paths) > 0 {
@@ -443,26 +451,63 @@ func Run(cfg *Config) error {
 	// Check if paths are provided for standard counting
 	if len(cfg.Paths) > 0 {
 		// Process each file
+		totalLines, totalWords, totalChars := 0, 0, 0
+		showTotal := len(cfg.Paths) > 1 && cfg.Line && cfg.Word && cfg.Char
+		
 		for _, path := range cfg.Paths {
-			if err := processFileForCounting(path, cfg); err != nil {
+			lines, words, chars, err := processFileForCounting(path, cfg)
+			if err != nil {
 				return err
 			}
+			
+			// If we're doing a wc-like output with multiple files, we need to track totals
+			if showTotal {
+				totalLines += lines
+				totalWords += words
+				totalChars += chars
+			}
 		}
+		
+		// Display totals for multiple files
+		if showTotal {
+			FormatLikeWC(cfg.Output, totalLines, totalWords, totalChars, "total")
+		}
+		
 		return nil
 	}
 	
 	// No paths, process stdin for standard counting
+	// Read all input into a buffer to allow multiple passes
+	inputData, err := io.ReadAll(cfg.Input)
+	if err != nil {
+		return fmt.Errorf("failed to read input: %w", err)
+	}
+	
+	// If default behavior (like wc), show all three counts
+	if cfg.Line && cfg.Word && cfg.Char {
+		lineCount := countLines(bytes.NewReader(inputData))
+		wordCount := countWords(bytes.NewReader(inputData))
+		charCount := countChars(bytes.NewReader(inputData))
+		
+		// Format output like wc: lines words chars
+		FormatLikeWC(cfg.Output, lineCount, wordCount, charCount, "")
+		return nil
+	}
+	
+	// Otherwise handle individual flags
 	var count int
 	switch {
 	case cfg.Line:
-		count = countLines(cfg.Input)
+		count = countLines(bytes.NewReader(inputData))
 	case cfg.Char:
-		count = countChars(cfg.Input)
+		count = countChars(bytes.NewReader(inputData))
 	case cfg.Word:
-		count = countWords(cfg.Input)
+		count = countWords(bytes.NewReader(inputData))
 	}
 	
-	fmt.Fprintln(cfg.Output, count)
+	// Match wc's spacing for output without a filename (no trailing space)
+	fmt.Fprintf(cfg.Output, "%8d", count)
+	fmt.Fprintln(cfg.Output)
 	return nil
 }
 
@@ -526,34 +571,69 @@ func processReaderForLanguage(r io.Reader, cfg *Config) error {
 	return nil
 }
 
+// FormatLikeWC formats counts exactly like the wc utility
+func FormatLikeWC(w io.Writer, lineCount, wordCount, charCount int, path string) {
+	// Exact format string to match wc output
+	// The key is to use the spacing for consistent results
+	if path == "" {
+		// No extra space at the end for stdin
+		fmt.Fprintf(w, "%8d %7d %7d", lineCount, wordCount, charCount)
+	} else {
+		// With path
+		fmt.Fprintf(w, "%8d %7d %7d %s", lineCount, wordCount, charCount, path)
+	}
+	// Use Fprintln to add the newline exactly like wc does
+	fmt.Fprintln(w)
+}
+
 // processFileForCounting handles standard counting operations for a specific file
-func processFileForCounting(path string, cfg *Config) error {
+// returns lineCount, wordCount, charCount, and error
+func processFileForCounting(path string, cfg *Config) (int, int, int, error) {
 	// Open the file
 	file, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("failed to open file %s: %w", path, err)
+		return 0, 0, 0, fmt.Errorf("failed to open file %s: %w", path, err)
 	}
 	defer file.Close()
 	
-	// Count based on the selected option
+	// Read the file contents to handle multiple passes
+	fileContents, err := io.ReadAll(file)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to read file %s: %w", path, err) 
+	}
+	
+	// Set up various counts
+	var lineCount, wordCount, charCount int
+	
+	// If default behavior (like wc), show all three counts
+	if cfg.Line && cfg.Word && cfg.Char {
+		lineCount = countLines(bytes.NewReader(fileContents))
+		wordCount = countWords(bytes.NewReader(fileContents))
+		charCount = countChars(bytes.NewReader(fileContents))
+		
+		// Use our wc-like formatter
+		FormatLikeWC(cfg.Output, lineCount, wordCount, charCount, path)
+		return lineCount, wordCount, charCount, nil
+	}
+	
+	// Otherwise handle individual flags
 	var count int
 	switch {
 	case cfg.Line:
-		count = countLines(file)
+		count = countLines(bytes.NewReader(fileContents))
+		lineCount = count
 	case cfg.Char:
-		count = countChars(file)
+		count = countChars(bytes.NewReader(fileContents))
+		charCount = count
 	case cfg.Word:
-		count = countWords(file)
+		count = countWords(bytes.NewReader(fileContents))
+		wordCount = count
 	}
 	
-	// If multiple files, print the filename with the count
-	if len(cfg.Paths) > 1 {
-		fmt.Fprintf(cfg.Output, "%s: %d\n", path, count)
-	} else {
-		fmt.Fprintln(cfg.Output, count)
-	}
+	// Print with filename, using the same spacing as wc
+	fmt.Fprintf(cfg.Output, "%8d %s\n", count, path)
 	
-	return nil
+	return lineCount, wordCount, charCount, nil
 }
 
 // processFileForFrequency handles word frequency analysis for a specific file
