@@ -187,24 +187,6 @@ all          3
 
 This tool has the following dependencies:
 
-### SCC (Sloc, Cloc and Code)
-
-For the `--loc` feature to work, you need to have the `scc` tool installed.
-
-Due to dependency version issues, please use the provided installation script:
-
-```bash
-./install-scc.sh
-```
-
-Or manually install a specific version:
-
-```bash
-go install github.com/boyter/scc@v1.12.1
-```
-
-This will install the [scc (Sloc, Cloc and Code)](https://github.com/boyter/scc) tool, which provides accurate code counting with support for many languages and smart handling of exclusion patterns.
-
 ### Whatlanggo
 
 The `--lang` and `--lang-name` features use the [whatlanggo](https://github.com/abadojack/whatlanggo) library for language detection, which supports over 80 languages. This dependency is managed through Go modules and doesn't require separate installation.
@@ -213,7 +195,6 @@ The `--lang` and `--lang-name` features use the [whatlanggo](https://github.com/
 
 ### Requirements
 - Go 1.16 or newer
-- scc tool (for the --loc feature)
 
 ### Build and Test
 

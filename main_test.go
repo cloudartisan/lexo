@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -1028,15 +1029,17 @@ func TestFileCountingProcessing(t *testing.T) {
 	}
 	
 	// Process the file
-	err = processFileForCounting(tempFile.Name(), cfg)
+	_, _, _, err = processFileForCounting(tempFile.Name(), cfg)
 	if err != nil {
 		t.Fatalf("processFileForCounting returned error: %v", err)
 	}
 	
 	// Verify output
 	actual := strings.TrimSpace(outBuf.String())
-	if actual != "4" {
-		t.Errorf("Expected output to be '4', got: %q", actual)
+	// Format has changed to include the file name like wc does
+	expected := fmt.Sprintf("4 %s", tempFile.Name())
+	if actual != expected {
+		t.Errorf("Expected output to be '%s', got: %q", expected, actual)
 	}
 }
 
@@ -1135,7 +1138,7 @@ func TestErrorHandlingFuncs(t *testing.T) {
 	}
 	
 	// Test invalid file path in processFileForCounting
-	err = processFileForCounting("/nonexistent/file.txt", &Config{})
+	_, _, _, err = processFileForCounting("/nonexistent/file.txt", &Config{})
 	if err == nil {
 		t.Error("Expected error for non-existent file in processFileForCounting")
 	}
@@ -1195,7 +1198,7 @@ func TestRunMain(t *testing.T) {
 
 // We'll use the osExit from main.go
 
-// Mock for countLinesOfCode
+// Test for countLinesOfCode
 func TestCountLinesOfCode(t *testing.T) {
 	// Create a temporary directory for testing
 	tempDir, err := os.MkdirTemp("", "lexo-test")
@@ -1204,13 +1207,15 @@ func TestCountLinesOfCode(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 	
-	// Create a test file
+	// Create a test file with known number of code lines
 	testFile := filepath.Join(tempDir, "test.go")
 	testContent := `package test
 
-// This is a test file
+// This is a comment line
 func TestFunc() {
-	// Some code
+	// Another comment
+	code1 := true
+	code2 := false
 	return
 }
 `
@@ -1219,43 +1224,237 @@ func TestFunc() {
 		t.Skipf("Could not write test file: %v", err)
 	}
 	
-	// Fake scc command for testing
-	mockSccPath := filepath.Join(tempDir, "scc")
-	mockSccContent := `#!/bin/sh
-echo '[{"Name":"Go","Code":42,"Comment":10,"Blank":5,"Complexity":1,"Count":1,"WeightedComplex":1}]'
-`
-	err = os.WriteFile(mockSccPath, []byte(mockSccContent), 0755)
-	if err != nil {
-		t.Skipf("Could not write mock scc: %v", err)
-	}
-	
-	// Add the mock scc to PATH
-	oldPath := os.Getenv("PATH")
-	os.Setenv("PATH", fmt.Sprintf("%s%c%s", tempDir, os.PathListSeparator, oldPath))
-	defer os.Setenv("PATH", oldPath)
-	
 	// Capture stdout
 	oldStdout := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 	
-	// Run the function
-	err = countLinesOfCode([]string{tempDir})
+	// Run the function with the test file
+	err = countLinesOfCode([]string{testFile})
 	
 	// Restore stdout
 	w.Close()
 	output, _ := io.ReadAll(r)
 	os.Stdout = oldStdout
 	
-	// Check the result
+	// Check the result - should count 6 lines of code (package, func, {, 2 code lines, return, })
 	if err != nil {
 		t.Errorf("countLinesOfCode returned error: %v", err)
 	}
 	
-	expected := "42"
+	expected := "6"
 	actual := strings.TrimSpace(string(output))
 	if actual != expected {
 		t.Errorf("Expected %q, got %q", expected, actual)
+	}
+}
+
+// TestProcessDirectory tests the processDirectory function
+func TestProcessDirectory(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "lexo-test-dir")
+	if err != nil {
+		t.Skipf("Could not create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+	
+	// Create a test directory structure
+	// - tempDir/
+	//   - code.go (a Go file with code)
+	//   - nested/
+	//     - more.go (another Go file)
+	//   - .hidden/ (should be ignored)
+	//     - hidden.go
+	//   - node_modules/ (should be ignored)
+	//     - ignore.js
+	
+	// Create the main Go file
+	codeFile := filepath.Join(tempDir, "code.go")
+	codeContent := `package test
+// A comment
+func main() {
+	// Another comment
+	code := true
+}
+`
+	err = os.WriteFile(codeFile, []byte(codeContent), 0644)
+	if err != nil {
+		t.Skipf("Could not write test file: %v", err)
+	}
+	
+	// Create nested directory
+	nestedDir := filepath.Join(tempDir, "nested")
+	err = os.Mkdir(nestedDir, 0755)
+	if err != nil {
+		t.Skipf("Could not create nested directory: %v", err)
+	}
+	
+	// Create nested Go file
+	nestedFile := filepath.Join(nestedDir, "more.go")
+	nestedContent := `package nested
+func test() {}
+`
+	err = os.WriteFile(nestedFile, []byte(nestedContent), 0644)
+	if err != nil {
+		t.Skipf("Could not write nested file: %v", err)
+	}
+	
+	// Create hidden directory (should be ignored)
+	hiddenDir := filepath.Join(tempDir, ".hidden")
+	err = os.Mkdir(hiddenDir, 0755)
+	if err != nil {
+		t.Skipf("Could not create hidden directory: %v", err)
+	}
+	
+	// Create hidden file
+	hiddenFile := filepath.Join(hiddenDir, "hidden.go")
+	err = os.WriteFile(hiddenFile, []byte("package hidden"), 0644)
+	if err != nil {
+		t.Skipf("Could not write hidden file: %v", err)
+	}
+	
+	// Create node_modules directory (should be ignored)
+	nodeDir := filepath.Join(tempDir, "node_modules")
+	err = os.Mkdir(nodeDir, 0755)
+	if err != nil {
+		t.Skipf("Could not create node_modules directory: %v", err)
+	}
+	
+	// Create ignored file
+	nodeFile := filepath.Join(nodeDir, "ignore.js")
+	err = os.WriteFile(nodeFile, []byte("// This should be ignored"), 0644)
+	if err != nil {
+		t.Skipf("Could not write ignored file: %v", err)
+	}
+	
+	// Set up the necessary parameters
+	skipDirs := map[string]bool{
+		"node_modules": true,
+		"target":       true,
+		".git":         true,
+	}
+	
+	codeExtensions := map[string]bool{
+		".go":   true,
+		".js":   true,
+		".py":   true,
+	}
+	
+	// Initialize stats
+	stats := CodeStats{}
+	
+	// Call the function
+	err = processDirectory(tempDir, skipDirs, codeExtensions, &stats)
+	if err != nil {
+		t.Errorf("processDirectory returned an error: %v", err)
+	}
+	
+	// Check results
+	// We should have found 2 files (code.go and nested/more.go)
+	if stats.Files != 2 {
+		t.Errorf("Expected 2 files, got %d", stats.Files)
+	}
+	
+	// We should have at least some code lines
+	if stats.Code <= 0 {
+		t.Errorf("Expected code lines > 0, got %d", stats.Code)
+	}
+}
+
+// TestProcessFile tests the processFile function
+func TestProcessFile(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "lexo-test-file")
+	if err != nil {
+		t.Skipf("Could not create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+	
+	// Create test files for different languages
+	testCases := []struct{
+		filename string
+		content  string
+		expected CodeStats
+	}{
+		{
+			filename: "test.go",
+			content: `package test
+// A comment
+func test() {
+	// Another comment
+	code := true
+}
+`,
+			expected: CodeStats{
+				Total:    6,
+				Code:     4,  // package, func, code line, }
+				Comments: 2,  // Two comment lines
+				Blank:    0,
+			},
+		},
+		{
+			filename: "test.py",
+			content: `# Python test
+def test():
+    # Another comment
+    code = True
+    return code
+
+# Final comment
+`,
+			expected: CodeStats{
+				Total:    7,
+				Code:     3,  // def, code, return
+				Comments: 3,  // Three comment lines
+				Blank:    1,  // One blank line
+			},
+		},
+		{
+			filename: "test.sh",
+			content: `#!/bin/bash
+# A shell script
+echo "Hello"
+# Another comment
+
+# Final line`,
+			expected: CodeStats{
+				Total:    6,
+				Code:     1,  // echo
+				Comments: 4,  // shebang is treated as comment
+				Blank:    1,  // One blank line
+			},
+		},
+	}
+	
+	for _, tc := range testCases {
+		t.Run(tc.filename, func(t *testing.T) {
+			// Create the test file
+			testFile := filepath.Join(tempDir, tc.filename)
+			err = os.WriteFile(testFile, []byte(tc.content), 0644)
+			if err != nil {
+				t.Skipf("Could not write test file: %v", err)
+			}
+			
+			// Call the function
+			stats, err := processFile(testFile)
+			if err != nil {
+				t.Errorf("processFile returned an error: %v", err)
+			}
+			
+			// Check results
+			if stats.Total != tc.expected.Total {
+				t.Errorf("Expected %d total lines, got %d", tc.expected.Total, stats.Total)
+			}
+			if stats.Code != tc.expected.Code {
+				t.Errorf("Expected %d code lines, got %d", tc.expected.Code, stats.Code)
+			}
+			if stats.Comments != tc.expected.Comments {
+				t.Errorf("Expected %d comment lines, got %d", tc.expected.Comments, stats.Comments)
+			}
+			if stats.Blank != tc.expected.Blank {
+				t.Errorf("Expected %d blank lines, got %d", tc.expected.Blank, stats.Blank)
+			}
+		})
 	}
 }
 
@@ -1268,86 +1467,30 @@ func TestCountLinesOfCodeErrors(t *testing.T) {
 		expectError string
 	}{
 		{
-			name: "scc not installed",
+			name: "non-existent file",
 			setupFunc: func() func() {
-				oldPath := os.Getenv("PATH")
-				// Set PATH to a non-existent directory to simulate scc not being available
-				os.Setenv("PATH", "/nonexistent/path")
-				return func() {
-					os.Setenv("PATH", oldPath)
-				}
+				return func() {}
 			},
-			paths:       []string{"."},
-			expectError: "scc is not installed",
+			paths:       []string{"/path/that/does/not/exist.go"},
+			expectError: "failed to get file info",
 		},
 		{
-			name: "scc command execution error",
+			name: "invalid directory",
 			setupFunc: func() func() {
-				// Create a temp directory
-				tempDir, err := os.MkdirTemp("", "lexo-test-scc")
-				if err != nil {
-					t.Fatalf("Failed to create temp directory: %v", err)
-				}
-				
-				// Create a fake scc that exits with error
-				mockSccPath := filepath.Join(tempDir, "scc")
-				mockSccContent := `#!/bin/sh
-echo "Some error occurred" >&2
-exit 1
-`
-				err = os.WriteFile(mockSccPath, []byte(mockSccContent), 0755)
-				if err != nil {
-					t.Fatalf("Failed to write mock scc: %v", err)
-				}
-				
-				oldPath := os.Getenv("PATH")
-				// Add our temp dir to PATH
-				os.Setenv("PATH", fmt.Sprintf("%s%c%s", tempDir, os.PathListSeparator, oldPath))
-				
-				return func() {
-					os.Setenv("PATH", oldPath)
-					os.RemoveAll(tempDir)
-				}
+				return func() {}
 			},
-			paths:       []string{"."},
-			expectError: "failed to run scc",
-		},
-		{
-			name: "scc invalid JSON output",
-			setupFunc: func() func() {
-				// Create a temp directory
-				tempDir, err := os.MkdirTemp("", "lexo-test-scc")
-				if err != nil {
-					t.Fatalf("Failed to create temp directory: %v", err)
-				}
-				
-				// Create a fake scc that outputs invalid JSON
-				mockSccPath := filepath.Join(tempDir, "scc")
-				mockSccContent := `#!/bin/sh
-echo "This is not valid JSON"
-exit 0
-`
-				err = os.WriteFile(mockSccPath, []byte(mockSccContent), 0755)
-				if err != nil {
-					t.Fatalf("Failed to write mock scc: %v", err)
-				}
-				
-				oldPath := os.Getenv("PATH")
-				// Add our temp dir to PATH
-				os.Setenv("PATH", fmt.Sprintf("%s%c%s", tempDir, os.PathListSeparator, oldPath))
-				
-				return func() {
-					os.Setenv("PATH", oldPath)
-					os.RemoveAll(tempDir)
-				}
-			},
-			paths:       []string{"."},
-			expectError: "failed to parse scc output",
+			paths:       []string{"/path/that/definitely/does/not/exist"},
+			expectError: "failed to get file info",
 		},
 	}
 	
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Skip permission tests on Windows
+			if runtime.GOOS == "windows" && tc.name == "invalid file permissions" {
+				t.Skip("Skipping permissions test on Windows")
+			}
+			
 			// Setup test environment
 			restore := tc.setupFunc()
 			defer restore()
@@ -1552,14 +1695,14 @@ func TestParseFlagsExtended(t *testing.T) {
 			},
 		},
 		{
-			name: "default to word count with no flags",
+			name: "default to all counts with no flags (like wc)",
 			args: []string{"lexo"},
 			checks: func(t *testing.T, cfg *Config) {
-				if !cfg.Word {
-					t.Error("Expected Word to be true by default")
+				if !cfg.Word || !cfg.Line || !cfg.Char {
+					t.Error("Expected Word, Line, and Char to be true by default (wc behavior)")
 				}
-				if cfg.Line || cfg.Char || cfg.LOC || cfg.DetectLanguage || cfg.FrequencyAnalysis {
-					t.Error("Expected other flags to be false by default")
+				if cfg.LOC || cfg.DetectLanguage || cfg.FrequencyAnalysis {
+					t.Error("Expected LOC, DetectLanguage, and FrequencyAnalysis to be false by default")
 				}
 			},
 		},

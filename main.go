@@ -3,27 +3,14 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 
 	"github.com/abadojack/whatlanggo"
 )
-
-// LanguageSummary represents a summary of a language from scc JSON output
-type LanguageSummary struct {
-	Name            string `json:"Name"`
-	Code            int    `json:"Code"`
-	Comment         int    `json:"Comment"`
-	Blank           int    `json:"Blank"`
-	Complexity      int    `json:"Complexity"`
-	Count           int    `json:"Count"`
-	WeightedComplex int    `json:"WeightedComplexity"`
-}
 
 func countWords(r io.Reader) int {
 	scanner := bufio.NewScanner(r)
@@ -209,55 +196,245 @@ func detectLanguage(r io.Reader) (string, string, error) {
 	return langTag, langName, nil
 }
 
+// CodeStats holds statistics about code in a file or directory
+type CodeStats struct {
+	Total     int // Total lines
+	Code      int // Lines of code (non-blank, non-comment)
+	Comments  int // Comment lines
+	Blank     int // Blank lines
+	Files     int // Number of files processed
+}
+
+// countLinesOfCode counts lines of code in files or directories without external dependencies
 func countLinesOfCode(paths []string) error {
-	// Build exclusion pattern
-	excludes := []string{
-		"--exclude-dir=target",
-		"--exclude-dir=node_modules",
-		"--exclude-dir=.git",
-		"--exclude-dir=.idea",
-		"--exclude-dir=.vscode",
-		"--exclude-dir=build",
-		"--exclude-dir=dist",
-		"--exclude-dir=bin",
-		"--exclude-dir=obj",
+	// Set of directories to skip
+	skipDirs := map[string]bool{
+		".git":         true,
+		".hg":          true,
+		".svn":         true,
+		"node_modules": true,
+		".idea":        true,
+		".vscode":      true,
+		"target":       true,
+		"build":        true,
+		"dist":         true,
+		"bin":          true,
+		"obj":          true,
 	}
 
-	// Prepare scc command
-	args := append([]string{
-		"--format=json",
-	}, excludes...)
-	args = append(args, paths...)
-
-	// Execute scc command
-	cmd := exec.Command("scc", args...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = os.Stderr
-
-	// Check if scc is installed
-	if _, err := exec.LookPath("scc"); err != nil {
-		return fmt.Errorf("scc is not installed. Please install it with 'go install github.com/boyter/scc@latest'")
+	// Set of file extensions to consider as code
+	codeExtensions := map[string]bool{
+		".go":    true,
+		".java":  true,
+		".js":    true,
+		".ts":    true,
+		".jsx":   true,
+		".tsx":   true,
+		".py":    true,
+		".c":     true,
+		".cpp":   true,
+		".h":     true,
+		".hpp":   true,
+		".cs":    true,
+		".rb":    true,
+		".php":   true,
+		".scala": true,
+		".rs":    true,
+		".swift": true,
+		".sh":    true,
+		".bat":   true,
+		".ps1":   true,
+		".html":  true,
+		".css":   true,
+		".scss":  true,
+		".sql":   true,
+		".kt":    true,
+		".kts":   true,
+		".ex":    true,
+		".exs":   true,
+		".md":    true,
 	}
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to run scc: %w", err)
+	// Initialize statistics
+	stats := CodeStats{}
+
+	// If no paths provided, use current directory
+	if len(paths) == 0 {
+		paths = []string{"."}
 	}
 
-	// Parse JSON output
-	var summaries []LanguageSummary
-	if err := json.Unmarshal(out.Bytes(), &summaries); err != nil {
-		return fmt.Errorf("failed to parse scc output: %w", err)
+	// Process each path
+	for _, path := range paths {
+		fileInfo, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("failed to get file info for %s: %w", path, err)
+		}
+
+		if fileInfo.IsDir() {
+			// Process directory recursively
+			err = processDirectory(path, skipDirs, codeExtensions, &stats)
+			if err != nil {
+				return err
+			}
+		} else {
+			// Process single file
+			fileStats, err := processFile(path)
+			if err != nil {
+				return err
+			}
+			
+			// Only count it if it has a recognized extension
+			ext := strings.ToLower(path[strings.LastIndexByte(path, '.')+1:])
+			if _, ok := codeExtensions["."+ext]; ok || len(ext) == 0 || ext == path {
+				stats.Total += fileStats.Total
+				stats.Code += fileStats.Code
+				stats.Comments += fileStats.Comments
+				stats.Blank += fileStats.Blank
+				stats.Files++
+			}
+		}
 	}
 
-	// Calculate total lines of code
-	var total int
-	for _, summary := range summaries {
-		total += summary.Code
-	}
-
-	fmt.Println(total)
+	// Print the code count
+	fmt.Println(stats.Code)
+	
 	return nil
+}
+
+// processDirectory processes a directory recursively
+func processDirectory(dirPath string, skipDirs map[string]bool, codeExtensions map[string]bool, stats *CodeStats) error {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return fmt.Errorf("failed to read directory %s: %w", dirPath, err)
+	}
+
+	for _, entry := range entries {
+		entryName := entry.Name()
+		entryPath := dirPath + "/" + entryName
+
+		// Skip hidden files and directories
+		if strings.HasPrefix(entryName, ".") {
+			continue
+		}
+
+		if entry.IsDir() {
+			// Skip directories in the ignore list
+			if skipDirs[entryName] {
+				continue
+			}
+
+			// Process subdirectory recursively
+			err = processDirectory(entryPath, skipDirs, codeExtensions, stats)
+			if err != nil {
+				return err
+			}
+		} else {
+			// Check if it's a code file based on extension
+			ext := strings.ToLower(entryName[strings.LastIndexByte(entryName, '.')+1:])
+			if _, ok := codeExtensions["."+ext]; !ok {
+				continue
+			}
+
+			// Process code file
+			fileStats, err := processFile(entryPath)
+			if err != nil {
+				// Just skip problematic files
+				continue
+			}
+
+			stats.Total += fileStats.Total
+			stats.Code += fileStats.Code
+			stats.Comments += fileStats.Comments
+			stats.Blank += fileStats.Blank
+			stats.Files++
+		}
+	}
+
+	return nil
+}
+
+// processFile counts lines of code, comments, and blank lines in a single file
+func processFile(filePath string) (CodeStats, error) {
+	stats := CodeStats{}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return stats, fmt.Errorf("failed to open file %s: %w", filePath, err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	isMultilineComment := false
+	
+	// Get file extension to determine comment syntax
+	ext := strings.ToLower(filePath[strings.LastIndexByte(filePath, '.')+1:])
+	
+	// This is a simplified approach - in a full implementation, you'd want
+	// a more robust language detection mechanism
+	for scanner.Scan() {
+		line := scanner.Text()
+		stats.Total++
+		
+		// Trimmed line for blank line detection
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" {
+			stats.Blank++
+			continue
+		}
+		
+		// Detect comments based on file extension
+		// This is a simplified approach - a real implementation would be more thorough
+		switch ext {
+		case "go", "c", "cpp", "java", "js", "ts", "cs", "swift", "kt":
+			// Handle C-style comments
+			if isMultilineComment {
+				stats.Comments++
+				if strings.Contains(line, "*/") {
+					isMultilineComment = false
+				}
+				continue
+			}
+			
+			if strings.HasPrefix(trimmedLine, "//") {
+				stats.Comments++
+				continue
+			}
+			
+			if strings.HasPrefix(trimmedLine, "/*") {
+				isMultilineComment = true
+				stats.Comments++
+				if strings.Contains(line, "*/") {
+					isMultilineComment = false
+				}
+				continue
+			}
+			
+		case "py", "rb":
+			// Handle Python/Ruby style comments
+			if strings.HasPrefix(trimmedLine, "#") {
+				stats.Comments++
+				continue
+			}
+			
+		case "sh", "bash":
+			// Handle shell script comments
+			if strings.HasPrefix(trimmedLine, "#") {
+				stats.Comments++
+				continue
+			}
+			
+		// Add more languages as needed
+		}
+		
+		// If not a comment or blank line, count as code
+		stats.Code++
+	}
+
+	if err := scanner.Err(); err != nil {
+		return stats, fmt.Errorf("error reading file %s: %w", filePath, err)
+	}
+
+	return stats, nil
 }
 
 // Config holds the configuration for the program
