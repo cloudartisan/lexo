@@ -27,9 +27,6 @@ jobs:
     - name: Build
       run: go build -v ./...
 
-    - name: Install Dependencies
-      run: go install github.com/boyter/scc@latest
-
     - name: Test
       run: go test -v -coverprofile=coverage.out ./...
 
