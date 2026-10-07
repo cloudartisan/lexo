@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ master ]
 
+# Only newer runs of this workflow for the same PR supersede older work.
+# Non-PR runs have unique keys, preserving every main/manual/scheduled run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     name: Build and Test
@@ -20,9 +26,6 @@ jobs:
 
     - name: Build
       run: go build -v ./...
-
-    - name: Install Dependencies
-      run: go install github.com/boyter/scc@latest
 
     - name: Test
       run: go test -v -coverprofile=coverage.out ./...
